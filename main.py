@@ -27,6 +27,7 @@ import pandas as pd
 from catboost import CatBoostClassifier
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel
 
 APP_DIR = Path(__file__).parent
 MODELS_DIR = APP_DIR / "models"
@@ -226,24 +227,133 @@ FRONTEND_HTML = """
   #summary { margin-top: 16px; font-size: 0.95rem; }
   #err { color: #c0392b; margin-top: 10px; }
   #loading { display: none; margin-top: 10px; }
+  .tabs { display: flex; gap: 8px; margin: 20px 0; border-bottom: 1px solid #ccc; }
+  .tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab.active { border-bottom-color: #2563eb; font-weight: 600; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .field { margin: 10px 0; }
+  .field label { display: block; font-size: 0.85rem; margin-bottom: 3px; color: #666; }
+  .field input, .field select { width: 100%; padding: 6px 8px; box-sizing: border-box;
+    border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .warn { background: rgba(230,170,0,0.15); border: 1px solid #e6aa00; border-radius: 6px;
+    padding: 10px 14px; font-size: 0.85rem; margin: 14px 0; }
+  #manualResult { margin-top: 18px; }
+  .verdict { padding: 16px; border-radius: 10px; text-align: center; }
+  .verdict.fraud { background: rgba(220,50,50,0.15); border: 1px solid #dc3232; }
+  .verdict.ok { background: rgba(30,140,80,0.15); border: 1px solid #1e8c50; }
+  .verdict h2 { margin: 0 0 6px 0; }
 </style>
 </head>
 <body>
-  <h1>Fraud Detection — batch CSV scorer</h1>
-  <p>Upload a CSV with columns: <code>transaction_id, user_id, device_id, timestamp,
-     amount, hours_since_prev_txn, merchant_category, country, channel</code></p>
+  <h1>Fraud Detection</h1>
 
-  <div class="drop" id="drop">
-    <input type="file" id="file" accept=".csv" style="display:none">
-    <p id="dropText">Click to choose a CSV, or drag one here</p>
+  <div class="tabs">
+    <div class="tab active" data-tab="csv">Upload CSV (accurate)</div>
+    <div class="tab" data-tab="manual">Enter manually (quick, less accurate)</div>
   </div>
-  <button id="submit" disabled>Score transactions</button>
-  <div id="loading">Scoring…</div>
-  <div id="err"></div>
-  <div id="summary"></div>
-  <div id="tableWrap"></div>
+
+  <div class="panel active" id="panel-csv">
+    <p>Upload a CSV with columns: <code>transaction_id, user_id, device_id, timestamp,
+       amount, hours_since_prev_txn, merchant_category, country, channel</code></p>
+
+    <div class="drop" id="drop">
+      <input type="file" id="file" accept=".csv" style="display:none">
+      <p id="dropText">Click to choose a CSV, or drag one here</p>
+    </div>
+    <button id="submit" disabled>Score transactions</button>
+    <div id="loading">Scoring…</div>
+    <div id="err"></div>
+    <div id="summary"></div>
+    <div id="tableWrap"></div>
+  </div>
+
+  <div class="panel" id="panel-manual">
+    <div class="warn">
+      This model relies heavily on device/merchant/category history across the whole
+      dataset. A single manually-entered transaction has none of that context, so this
+      score is noticeably less reliable than the CSV batch mode. Use it for a rough
+      check, not a final decision.
+    </div>
+
+    <div class="grid2">
+      <div class="field"><label>User ID</label><input type="number" id="m_user_id" value="1"></div>
+      <div class="field"><label>Device ID</label><input type="number" id="m_device_id" value="1"></div>
+      <div class="field"><label>Amount</label><input type="number" step="0.01" id="m_amount" value="100"></div>
+      <div class="field"><label>Hours since previous transaction</label><input type="number" step="0.1" id="m_gap" value="5"></div>
+      <div class="field"><label>Timestamp (unix seconds)</label><input type="number" id="m_timestamp" value=""></div>
+      <div class="field"><label>Channel</label>
+        <select id="m_channel"><option>online</option><option>pos</option><option>atm</option></select>
+      </div>
+      <div class="field"><label>Merchant category</label>
+        <input type="text" id="m_merchant" value="grocery">
+      </div>
+      <div class="field"><label>Country</label>
+        <input type="text" id="m_country" value="US">
+      </div>
+    </div>
+
+    <button id="manualSubmit">Check transaction</button>
+    <div id="manualErr" class="err"></div>
+    <div id="manualResult"></div>
+  </div>
 
 <script>
+document.getElementById('m_timestamp').value = Math.floor(Date.now() / 1000);
+
+// ---- tabs ----
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+// ---- manual entry ----
+document.getElementById('manualSubmit').addEventListener('click', async () => {
+  const errEl = document.getElementById('manualErr');
+  const resultEl = document.getElementById('manualResult');
+  errEl.textContent = '';
+  resultEl.innerHTML = '';
+
+  const payload = {
+    user_id: parseInt(document.getElementById('m_user_id').value),
+    device_id: parseInt(document.getElementById('m_device_id').value),
+    timestamp: parseInt(document.getElementById('m_timestamp').value),
+    amount: parseFloat(document.getElementById('m_amount').value),
+    hours_since_prev_txn: parseFloat(document.getElementById('m_gap').value),
+    merchant_category: document.getElementById('m_merchant').value,
+    country: document.getElementById('m_country').value,
+    channel: document.getElementById('m_channel').value,
+  };
+
+  try {
+    const res = await fetch('/predict_manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail ? JSON.stringify(detail.detail) : ('Request failed: ' + res.status));
+    }
+    const data = await res.json();
+    const isFraud = data.flag_fixed_cutoff === 1;
+    resultEl.innerHTML = `
+      <div class="verdict ${isFraud ? 'fraud' : 'ok'}">
+        <h2>${isFraud ? 'Likely fraud' : 'Likely legitimate'}</h2>
+        <p>Fraud probability: <b>${(data.fraud_probability * 100).toFixed(2)}%</b></p>
+        <p style="font-size:0.8rem; color:#888;">Model OOF ROC-AUC: ${data.oof_roc_auc.toFixed(3)} (weak-but-real signal)</p>
+      </div>`;
+  } catch (e) {
+    errEl.textContent = e.message;
+  }
+});
+
+// ---- csv upload (existing) ----
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file');
 const submitBtn = document.getElementById('submit');
@@ -391,5 +501,38 @@ async def predict_json(file: UploadFile = File(...)):
     result = score(df)
     return {
         "rows": result.to_dict(orient="records"),
+        "oof_roc_auc": CONFIG.get("oof_roc_auc"),
+    }
+
+
+class ManualTransaction(BaseModel):
+    user_id: int
+    device_id: int
+    timestamp: int
+    amount: float
+    hours_since_prev_txn: float
+    merchant_category: str
+    country: str
+    channel: str
+
+
+@app.post("/predict_manual")
+def predict_manual(txn: ManualTransaction):
+    df = pd.DataFrame([{
+        "transaction_id": 1,
+        "user_id": txn.user_id,
+        "device_id": txn.device_id,
+        "timestamp": txn.timestamp,
+        "amount": txn.amount,
+        "hours_since_prev_txn": txn.hours_since_prev_txn,
+        "merchant_category": txn.merchant_category,
+        "country": txn.country,
+        "channel": txn.channel,
+    }])
+    result = score(df)
+    row = result.iloc[0]
+    return {
+        "fraud_probability": float(row["fraud_probability"]),
+        "flag_fixed_cutoff": int(row["flag_fixed_cutoff"]),
         "oof_roc_auc": CONFIG.get("oof_roc_auc"),
     }
