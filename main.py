@@ -7,9 +7,11 @@ shape as the original train/test files gets scored consistently with
 what the 5-fold CatBoost models were trained on.
 
 Endpoints:
-  GET  /                -> health check
+  GET  /                -> upload-a-CSV frontend page
+  GET  /health            -> health check
   GET  /config           -> the model's training config (flag rate, AUC, etc.)
-  POST /predict_csv       -> upload a CSV, get back a scored CSV
+  POST /predict_csv       -> upload a CSV, get back a scored CSV (file download)
+  POST /predict_json      -> upload a CSV, get back scored rows as JSON (used by the frontend)
 
 Required input CSV columns (same as the original test.csv):
   transaction_id, user_id, device_id, timestamp, amount,
@@ -24,7 +26,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 APP_DIR = Path(__file__).parent
 MODELS_DIR = APP_DIR / "models"
@@ -196,7 +198,140 @@ def score(df: pd.DataFrame) -> pd.DataFrame:
     return pool[["transaction_id", "fraud_probability", "flag_fixed_cutoff", "flag_topk_batch"]]
 
 
-@app.get("/")
+FRONTEND_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fraud Detection</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 900px;
+         margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 1.4rem; }
+  .drop { border: 2px dashed #999; border-radius: 10px; padding: 30px; text-align: center;
+          cursor: pointer; margin: 20px 0; }
+  .drop.drag { border-color: #4a7; background: rgba(74,170,119,0.08); }
+  button { background: #2563eb; color: white; border: none; padding: 10px 18px;
+           border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  table { border-collapse: collapse; width: 100%; margin-top: 20px; font-size: 0.9rem; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  tr.fraud { background: rgba(220,50,50,0.15); }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; }
+  .badge.fraud { background: #dc3232; color: white; }
+  .badge.ok { background: #2a8; color: white; }
+  #summary { margin-top: 16px; font-size: 0.95rem; }
+  #err { color: #c0392b; margin-top: 10px; }
+  #loading { display: none; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <h1>Fraud Detection — batch CSV scorer</h1>
+  <p>Upload a CSV with columns: <code>transaction_id, user_id, device_id, timestamp,
+     amount, hours_since_prev_txn, merchant_category, country, channel</code></p>
+
+  <div class="drop" id="drop">
+    <input type="file" id="file" accept=".csv" style="display:none">
+    <p id="dropText">Click to choose a CSV, or drag one here</p>
+  </div>
+  <button id="submit" disabled>Score transactions</button>
+  <div id="loading">Scoring…</div>
+  <div id="err"></div>
+  <div id="summary"></div>
+  <div id="tableWrap"></div>
+
+<script>
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file');
+const submitBtn = document.getElementById('submit');
+const dropText = document.getElementById('dropText');
+const err = document.getElementById('err');
+const loading = document.getElementById('loading');
+const summary = document.getElementById('summary');
+const tableWrap = document.getElementById('tableWrap');
+let selectedFile = null;
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  drop.classList.remove('drag');
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) setFile(fileInput.files[0]);
+});
+
+function setFile(f) {
+  selectedFile = f;
+  dropText.textContent = 'Selected: ' + f.name;
+  submitBtn.disabled = false;
+}
+
+submitBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  err.textContent = '';
+  summary.innerHTML = '';
+  tableWrap.innerHTML = '';
+  loading.style.display = 'block';
+  submitBtn.disabled = true;
+
+  const formData = new FormData();
+  formData.append('file', selectedFile);
+
+  try {
+    const res = await fetch('/predict_json', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || ('Request failed: ' + res.status));
+    }
+    const data = await res.json();
+    render(data);
+  } catch (e) {
+    err.textContent = e.message;
+  } finally {
+    loading.style.display = 'none';
+    submitBtn.disabled = false;
+  }
+});
+
+function render(data) {
+  const rows = data.rows;
+  const nFraud = rows.filter(r => r.flag_fixed_cutoff === 1).length;
+  summary.innerHTML = `<b>${rows.length}</b> transactions scored — ` +
+    `<b>${nFraud}</b> flagged as fraud (fixed cutoff) ` +
+    `&middot; model OOF ROC-AUC: ${data.oof_roc_auc.toFixed(3)} (weak-but-real signal)`;
+
+  let html = '<table><thead><tr><th>Transaction ID</th><th>Fraud probability</th>' +
+    '<th>Flag (fixed cutoff)</th><th>Flag (top-k in batch)</th></tr></thead><tbody>';
+  for (const r of rows) {
+    const isFraud = r.flag_fixed_cutoff === 1;
+    html += `<tr class="${isFraud ? 'fraud' : ''}">` +
+      `<td>${r.transaction_id}</td>` +
+      `<td>${(r.fraud_probability * 100).toFixed(2)}%</td>` +
+      `<td><span class="badge ${isFraud ? 'fraud' : 'ok'}">${isFraud ? 'FRAUD' : 'OK'}</span></td>` +
+      `<td>${r.flag_topk_batch === 1 ? 'FRAUD' : 'OK'}</td>` +
+      `</tr>`;
+  }
+  html += '</tbody></table>';
+  tableWrap.innerHTML = html;
+}
+</script>
+</body>
+</html>
+"""
+
+
+@app.get("/", response_class=HTMLResponse)
+def frontend():
+    return FRONTEND_HTML
+
+
+@app.get("/health")
 def health():
     return {"status": "ok", "models_loaded": len(MODELS), "n_features": len(FEATURES)}
 
@@ -237,3 +372,24 @@ async def predict_csv(file: UploadFile = File(...)):
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=fraud_predictions.csv"},
     )
+
+
+@app.post("/predict_json")
+async def predict_json(file: UploadFile = File(...)):
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a .csv file")
+
+    raw = await file.read()
+    try:
+        df = pd.read_csv(io.BytesIO(raw))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse CSV: {e}")
+
+    if len(df) == 0:
+        raise HTTPException(status_code=400, detail="CSV has no rows")
+
+    result = score(df)
+    return {
+        "rows": result.to_dict(orient="records"),
+        "oof_roc_auc": CONFIG.get("oof_roc_auc"),
+    }
