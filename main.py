@@ -208,79 +208,63 @@ FRONTEND_HTML = """
 <title>Fraud Detection</title>
 <style>
   :root { color-scheme: light dark; }
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 900px;
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 640px;
          margin: 40px auto; padding: 0 20px; }
-  h1 { font-size: 1.4rem; }
-  .drop { border: 2px dashed #999; border-radius: 10px; padding: 30px; text-align: center;
-          cursor: pointer; margin: 20px 0; }
-  .drop.drag { border-color: #4a7; background: rgba(74,170,119,0.08); }
-  button { background: #2563eb; color: white; border: none; padding: 10px 18px;
-           border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  table { border-collapse: collapse; width: 100%; margin-top: 20px; font-size: 0.9rem; }
-  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: right; }
-  th:first-child, td:first-child { text-align: left; }
-  tr.fraud { background: rgba(220,50,50,0.15); }
-  .badge { padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; }
-  .badge.fraud { background: #dc3232; color: white; }
-  .badge.ok { background: #2a8; color: white; }
-  #summary { margin-top: 16px; font-size: 0.95rem; }
-  #err { color: #c0392b; margin-top: 10px; }
-  #loading { display: none; margin-top: 10px; }
-  .tabs { display: flex; gap: 8px; margin: 20px 0; border-bottom: 1px solid #ccc; }
-  .tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; }
-  .tab.active { border-bottom-color: #2563eb; font-weight: 600; }
-  .panel { display: none; }
-  .panel.active { display: block; }
-  .field { margin: 10px 0; }
-  .field label { display: block; font-size: 0.85rem; margin-bottom: 3px; color: #666; }
-  .field input, .field select { width: 100%; padding: 6px 8px; box-sizing: border-box;
-    border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 0.9rem; margin-bottom: 24px; }
+  .card { border: 1px solid rgba(128,128,128,0.3); border-radius: 12px; padding: 22px;
+          margin-bottom: 20px; }
+  .field { margin: 12px 0; }
+  .field label { display: block; font-size: 0.85rem; margin-bottom: 4px; color: #888; }
+  .field input, .field select { width: 100%; padding: 8px 10px; border: 1px solid #ccc;
+    border-radius: 6px; font-size: 0.95rem; background: transparent; color: inherit; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-  .warn { background: rgba(230,170,0,0.15); border: 1px solid #e6aa00; border-radius: 6px;
-    padding: 10px 14px; font-size: 0.85rem; margin: 14px 0; }
-  #manualResult { margin-top: 18px; }
-  .verdict { padding: 16px; border-radius: 10px; text-align: center; }
-  .verdict.fraud { background: rgba(220,50,50,0.15); border: 1px solid #dc3232; }
-  .verdict.ok { background: rgba(30,140,80,0.15); border: 1px solid #1e8c50; }
-  .verdict h2 { margin: 0 0 6px 0; }
+  button { background: #2563eb; color: white; border: none; padding: 11px 20px;
+           border-radius: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 600;
+           width: 100%; margin-top: 8px; }
+  button:hover { background: #1e50c0; }
+  #err { color: #c0392b; margin-top: 10px; font-size: 0.9rem; }
+
+  #manualResult { display: none; }
+  .verdict { padding: 22px; border-radius: 12px; text-align: center; margin-bottom: 18px; }
+  .verdict.fraud { background: rgba(220,50,50,0.12); border: 1px solid #dc3232; }
+  .verdict.ok { background: rgba(30,140,80,0.12); border: 1px solid #1e8c50; }
+  .verdict h2 { margin: 0 0 4px 0; font-size: 1.3rem; }
+  .verdict.fraud h2 { color: #dc3232; }
+  .verdict.ok h2 { color: #1e8c50; }
+  .verdict .icon { font-size: 2.2rem; margin-bottom: 6px; }
+
+  .meter-row { display: flex; justify-content: space-between; font-size: 0.8rem;
+    color: #888; margin-bottom: 4px; }
+  .meter { position: relative; height: 10px; border-radius: 6px; background: rgba(128,128,128,0.2);
+    overflow: visible; margin: 6px 0 2px 0; }
+  .meter-fill { height: 100%; border-radius: 6px; }
+  .meter-fill.fraud { background: #dc3232; }
+  .meter-fill.ok { background: #1e8c50; }
+  .meter-threshold { position: absolute; top: -3px; width: 2px; height: 16px; background: #888; }
+  .meter-caption { font-size: 0.75rem; color: #888; margin-top: 4px; }
+
+  .details-title { font-size: 0.85rem; color: #888; margin: 4px 0 10px 0; text-transform: uppercase;
+    letter-spacing: 0.03em; }
+  .details table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .details td { padding: 5px 0; border-bottom: 1px solid rgba(128,128,128,0.15); }
+  .details td:first-child { color: #888; }
+  .details td:last-child { text-align: right; font-weight: 500; }
+
+  .again { background: transparent; border: 1px solid #2563eb; color: #2563eb; margin-top: 14px; }
+  .again:hover { background: rgba(37,99,235,0.08); }
 </style>
 </head>
 <body>
   <h1>Fraud Detection</h1>
+  <div class="sub">Enter a transaction to check whether it looks like fraud.</div>
 
-  <div class="tabs">
-    <div class="tab active" data-tab="csv">Upload CSV (accurate)</div>
-    <div class="tab" data-tab="manual">Enter manually (quick, less accurate)</div>
-  </div>
-
-  <div class="panel active" id="panel-csv">
-    <p>Upload a CSV with columns: <code>transaction_id, user_id, device_id, timestamp,
-       amount, hours_since_prev_txn, merchant_category, country, channel</code></p>
-
-    <div class="drop" id="drop">
-      <input type="file" id="file" accept=".csv" style="display:none">
-      <p id="dropText">Click to choose a CSV, or drag one here</p>
-    </div>
-    <button id="submit" disabled>Score transactions</button>
-    <div id="loading">Scoring…</div>
-    <div id="err"></div>
-    <div id="summary"></div>
-    <div id="tableWrap"></div>
-  </div>
-
-  <div class="panel" id="panel-manual">
-    <div class="warn">
-      This model relies heavily on device/merchant/category history across the whole
-      dataset. A single manually-entered transaction has none of that context, so this
-      score is noticeably less reliable than the CSV batch mode. Use it for a rough
-      check, not a final decision.
-    </div>
-
+  <div class="card" id="formCard">
     <div class="grid2">
       <div class="field"><label>User ID</label><input type="number" id="m_user_id" value="1"></div>
       <div class="field"><label>Device ID</label><input type="number" id="m_device_id" value="1"></div>
-      <div class="field"><label>Amount</label><input type="number" step="0.01" id="m_amount" value="100"></div>
+      <div class="field"><label>Amount ($)</label><input type="number" step="0.01" id="m_amount" value="100"></div>
       <div class="field"><label>Hours since previous transaction</label><input type="number" step="0.1" id="m_gap" value="5"></div>
       <div class="field"><label>Timestamp (unix seconds)</label><input type="number" id="m_timestamp" value=""></div>
       <div class="field"><label>Channel</label>
@@ -295,29 +279,32 @@ FRONTEND_HTML = """
     </div>
 
     <button id="manualSubmit">Check transaction</button>
-    <div id="manualErr" class="err"></div>
-    <div id="manualResult"></div>
+    <div id="err"></div>
+  </div>
+
+  <div id="manualResult">
+    <div class="card" id="verdictCard"></div>
+    <div class="card details">
+      <div class="details-title">Transaction details</div>
+      <table id="detailsTable"></table>
+      <button class="again" id="checkAnother">Check another transaction</button>
+    </div>
   </div>
 
 <script>
 document.getElementById('m_timestamp').value = Math.floor(Date.now() / 1000);
 
-// ---- tabs ----
-document.querySelectorAll('.tab').forEach(t => {
-  t.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
-    t.classList.add('active');
-    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
-  });
-});
+function fieldLabel(id) {
+  return {
+    user_id: 'User ID', device_id: 'Device ID', amount: 'Amount',
+    hours_since_prev_txn: 'Hours since previous transaction', timestamp: 'Timestamp',
+    channel: 'Channel', merchant_category: 'Merchant category', country: 'Country',
+  }[id];
+}
 
-// ---- manual entry ----
 document.getElementById('manualSubmit').addEventListener('click', async () => {
-  const errEl = document.getElementById('manualErr');
-  const resultEl = document.getElementById('manualResult');
+  const errEl = document.getElementById('err');
   errEl.textContent = '';
-  resultEl.innerHTML = '';
 
   const payload = {
     user_id: parseInt(document.getElementById('m_user_id').value),
@@ -341,94 +328,52 @@ document.getElementById('manualSubmit').addEventListener('click', async () => {
       throw new Error(detail.detail ? JSON.stringify(detail.detail) : ('Request failed: ' + res.status));
     }
     const data = await res.json();
-    const isFraud = data.flag_fixed_cutoff === 1;
-    resultEl.innerHTML = `
-      <div class="verdict ${isFraud ? 'fraud' : 'ok'}">
-        <h2>${isFraud ? 'Likely fraud' : 'Likely legitimate'}</h2>
-        <p>Fraud probability: <b>${(data.fraud_probability * 100).toFixed(2)}%</b></p>
-        <p style="font-size:0.8rem; color:#888;">Model OOF ROC-AUC: ${data.oof_roc_auc.toFixed(3)} (weak-but-real signal)</p>
-      </div>`;
+    render(data);
   } catch (e) {
     errEl.textContent = e.message;
   }
 });
 
-// ---- csv upload (existing) ----
-const drop = document.getElementById('drop');
-const fileInput = document.getElementById('file');
-const submitBtn = document.getElementById('submit');
-const dropText = document.getElementById('dropText');
-const err = document.getElementById('err');
-const loading = document.getElementById('loading');
-const summary = document.getElementById('summary');
-const tableWrap = document.getElementById('tableWrap');
-let selectedFile = null;
-
-drop.addEventListener('click', () => fileInput.click());
-drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
-drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
-drop.addEventListener('drop', e => {
-  e.preventDefault();
-  drop.classList.remove('drag');
-  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
-});
-fileInput.addEventListener('change', () => {
-  if (fileInput.files.length) setFile(fileInput.files[0]);
-});
-
-function setFile(f) {
-  selectedFile = f;
-  dropText.textContent = 'Selected: ' + f.name;
-  submitBtn.disabled = false;
-}
-
-submitBtn.addEventListener('click', async () => {
-  if (!selectedFile) return;
-  err.textContent = '';
-  summary.innerHTML = '';
-  tableWrap.innerHTML = '';
-  loading.style.display = 'block';
-  submitBtn.disabled = true;
-
-  const formData = new FormData();
-  formData.append('file', selectedFile);
-
-  try {
-    const res = await fetch('/predict_json', { method: 'POST', body: formData });
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}));
-      throw new Error(detail.detail || ('Request failed: ' + res.status));
-    }
-    const data = await res.json();
-    render(data);
-  } catch (e) {
-    err.textContent = e.message;
-  } finally {
-    loading.style.display = 'none';
-    submitBtn.disabled = false;
-  }
+document.getElementById('checkAnother').addEventListener('click', () => {
+  document.getElementById('manualResult').style.display = 'none';
+  document.getElementById('formCard').style.display = 'block';
 });
 
 function render(data) {
-  const rows = data.rows;
-  const nFraud = rows.filter(r => r.flag_fixed_cutoff === 1).length;
-  summary.innerHTML = `<b>${rows.length}</b> transactions scored — ` +
-    `<b>${nFraud}</b> flagged as fraud (fixed cutoff) ` +
-    `&middot; model OOF ROC-AUC: ${data.oof_roc_auc.toFixed(3)} (weak-but-real signal)`;
+  const isFraud = data.flag_fixed_cutoff === 1;
+  const prob = data.fraud_probability;
+  const threshold = data.threshold;
 
-  let html = '<table><thead><tr><th>Transaction ID</th><th>Fraud probability</th>' +
-    '<th>Flag (fixed cutoff)</th><th>Flag (top-k in batch)</th></tr></thead><tbody>';
-  for (const r of rows) {
-    const isFraud = r.flag_fixed_cutoff === 1;
-    html += `<tr class="${isFraud ? 'fraud' : ''}">` +
-      `<td>${r.transaction_id}</td>` +
-      `<td>${(r.fraud_probability * 100).toFixed(2)}%</td>` +
-      `<td><span class="badge ${isFraud ? 'fraud' : 'ok'}">${isFraud ? 'FRAUD' : 'OK'}</span></td>` +
-      `<td>${r.flag_topk_batch === 1 ? 'FRAUD' : 'OK'}</td>` +
-      `</tr>`;
-  }
-  html += '</tbody></table>';
-  tableWrap.innerHTML = html;
+  // scale the meter so the threshold line sits at a fixed visible point (30%),
+  // and the fill goes up to 100% once probability reaches ~3x threshold
+  const maxScale = threshold * 3;
+  const fillPct = Math.min(100, (prob / maxScale) * 100);
+  const thresholdPct = Math.min(100, (threshold / maxScale) * 100);
+
+  const verdict = document.getElementById('verdictCard');
+  verdict.innerHTML = `
+    <div class="verdict ${isFraud ? 'fraud' : 'ok'}">
+      <div class="icon">${isFraud ? '\u26A0\uFE0F' : '\u2705'}</div>
+      <h2>${isFraud ? 'Flagged as fraud' : 'Looks legitimate'}</h2>
+      <div>Fraud score: <b>${(prob * 100).toFixed(2)}%</b></div>
+    </div>
+    <div class="meter-row"><span>Risk level</span><span>Flag threshold: ${(threshold * 100).toFixed(2)}%</span></div>
+    <div class="meter">
+      <div class="meter-fill ${isFraud ? 'fraud' : 'ok'}" style="width:${fillPct}%"></div>
+      <div class="meter-threshold" style="left:${thresholdPct}%"></div>
+    </div>
+    <div class="meter-caption">${isFraud
+      ? 'This transaction scored above the model\\'s flagging threshold.'
+      : 'This transaction scored below the model\\'s flagging threshold.'}</div>
+  `;
+
+  const rows = Object.entries(data.input).map(([k, v]) =>
+    `<tr><td>${fieldLabel(k)}</td><td>${v}</td></tr>`
+  ).join('');
+  document.getElementById('detailsTable').innerHTML = rows;
+
+  document.getElementById('formCard').style.display = 'none';
+  document.getElementById('manualResult').style.display = 'block';
 }
 </script>
 </body>
@@ -534,5 +479,6 @@ def predict_manual(txn: ManualTransaction):
     return {
         "fraud_probability": float(row["fraud_probability"]),
         "flag_fixed_cutoff": int(row["flag_fixed_cutoff"]),
-        "oof_roc_auc": CONFIG.get("oof_roc_auc"),
+        "threshold": SCORE_CUTOFF,
+        "input": txn.dict(),
     }
