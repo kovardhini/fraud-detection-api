@@ -278,6 +278,12 @@ FRONTEND_HTML = """
       </div>
     </div>
 
+    <div class="field">
+      <label>Flagging threshold: <span id="thresholdLabel"></span>
+        <span style="font-weight:400;">(lower = stricter, more gets flagged as fraud)</span></label>
+      <input type="range" id="m_threshold" min="0.005" max="0.5" step="0.005" value="0.05">
+    </div>
+
     <button id="manualSubmit">Check transaction</button>
     <div id="err"></div>
   </div>
@@ -288,11 +294,20 @@ FRONTEND_HTML = """
       <div class="details-title">Transaction details</div>
       <table id="detailsTable"></table>
       <button class="again" id="checkAnother">Check another transaction</button>
+
     </div>
   </div>
 
 <script>
 document.getElementById('m_timestamp').value = Math.floor(Date.now() / 1000);
+
+const thresholdInput = document.getElementById('m_threshold');
+const thresholdLabel = document.getElementById('thresholdLabel');
+function updateThresholdLabel() {
+  thresholdLabel.textContent = (parseFloat(thresholdInput.value) * 100).toFixed(1) + '%';
+}
+thresholdInput.addEventListener('input', updateThresholdLabel);
+updateThresholdLabel();
 
 function fieldLabel(id) {
   return {
@@ -316,6 +331,7 @@ document.getElementById('manualSubmit').addEventListener('click', async () => {
     country: document.getElementById('m_country').value,
     channel: document.getElementById('m_channel').value,
   };
+  const userThreshold = parseFloat(thresholdInput.value);
 
   try {
     const res = await fetch('/predict_manual', {
@@ -328,7 +344,7 @@ document.getElementById('manualSubmit').addEventListener('click', async () => {
       throw new Error(detail.detail ? JSON.stringify(detail.detail) : ('Request failed: ' + res.status));
     }
     const data = await res.json();
-    render(data);
+    render(data, userThreshold);
   } catch (e) {
     errEl.textContent = e.message;
   }
@@ -339,12 +355,11 @@ document.getElementById('checkAnother').addEventListener('click', () => {
   document.getElementById('formCard').style.display = 'block';
 });
 
-function render(data) {
-  const isFraud = data.flag_fixed_cutoff === 1;
+function render(data, threshold) {
   const prob = data.fraud_probability;
-  const threshold = data.threshold;
+  const isFraud = prob >= threshold;
 
-  // scale the meter so the threshold line sits at a fixed visible point (30%),
+  // scale the meter so the threshold line sits at a fixed visible point,
   // and the fill goes up to 100% once probability reaches ~3x threshold
   const maxScale = threshold * 3;
   const fillPct = Math.min(100, (prob / maxScale) * 100);
@@ -357,14 +372,14 @@ function render(data) {
       <h2>${isFraud ? 'Flagged as fraud' : 'Looks legitimate'}</h2>
       <div>Fraud score: <b>${(prob * 100).toFixed(2)}%</b></div>
     </div>
-    <div class="meter-row"><span>Risk level</span><span>Flag threshold: ${(threshold * 100).toFixed(2)}%</span></div>
+    <div class="meter-row"><span>Risk level</span><span>Your threshold: ${(threshold * 100).toFixed(2)}%</span></div>
     <div class="meter">
       <div class="meter-fill ${isFraud ? 'fraud' : 'ok'}" style="width:${fillPct}%"></div>
       <div class="meter-threshold" style="left:${thresholdPct}%"></div>
     </div>
     <div class="meter-caption">${isFraud
-      ? 'This transaction scored above the model\\'s flagging threshold.'
-      : 'This transaction scored below the model\\'s flagging threshold.'}</div>
+      ? 'This transaction scored above your chosen threshold.'
+      : 'This transaction scored below your chosen threshold.'}</div>
   `;
 
   const rows = Object.entries(data.input).map(([k, v]) =>
